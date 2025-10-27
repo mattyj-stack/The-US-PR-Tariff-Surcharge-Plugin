@@ -360,6 +360,7 @@ if ( ! class_exists( 'US_PR_Tariff_Surcharge' ) ) {
                 'amount'         => $amount,
                 'country'        => $shipping_country,
                 'state'          => $shipping_state,
+                'label'          => $label,
             );
             WC()->session->set( self::SESSION_KEY, $session_data );
         }
@@ -702,8 +703,14 @@ if ( ! class_exists( 'US_PR_Tariff_Surcharge' ) ) {
          * @param WC_Cart $cart Cart instance.
          */
         protected function remove_existing_fee( $cart ) {
+            $session_data = WC()->session ? WC()->session->get( self::SESSION_KEY ) : null;
+            $session_label = is_array( $session_data ) && ! empty( $session_data['label'] ) ? (string) $session_data['label'] : '';
+
             foreach ( $cart->fees_api()->get_fees() as $fee_key => $fee ) {
-                if ( isset( $fee->id ) && 'us_pr_tariff_surcharge' === $fee->id ) {
+                $fee_id    = isset( $fee->id ) ? (string) $fee->id : '';
+                $fee_label = isset( $fee->name ) ? (string) $fee->name : '';
+
+                if ( 'us_pr_tariff_surcharge' === $fee_id || ( $session_label && $session_label === $fee_label ) ) {
                     $cart->fees_api()->remove_fee( $fee_key );
                 }
             }
@@ -719,16 +726,22 @@ if ( ! class_exists( 'US_PR_Tariff_Surcharge' ) ) {
          * @param string  $tax_class Tax class slug.
          */
         protected function add_fee_to_cart( $cart, $label, $amount, $taxable, $tax_class ) {
-            if ( ! class_exists( 'WC_Cart_Fee' ) ) {
-                include_once WC_ABSPATH . 'includes/class-wc-cart-fee.php';
+            $fee_data = array(
+                'name'      => $label,
+                'amount'    => $amount,
+                'taxable'   => (bool) $taxable,
+                'tax_class' => $tax_class,
+                'id'        => 'us_pr_tariff_surcharge',
+            );
+
+            $fees_api = $cart->fees_api();
+
+            if ( is_object( $fees_api ) && method_exists( $fees_api, 'add_fee' ) ) {
+                $fees_api->add_fee( $fee_data );
+                return;
             }
-            $fee            = new WC_Cart_Fee();
-            $fee->name      = $label;
-            $fee->amount    = $amount;
-            $fee->taxable   = (bool) $taxable;
-            $fee->tax_class = $tax_class;
-            $fee->id        = 'us_pr_tariff_surcharge';
-            $cart->fees_api()->add_fee( $fee );
+
+            $cart->add_fee( $label, $amount, (bool) $taxable, $tax_class );
         }
 
         /**
