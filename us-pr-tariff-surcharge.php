@@ -339,7 +339,7 @@ if ( ! class_exists( 'US_PR_Tariff_Surcharge' ) ) {
                 return;
             }
 
-            $amount = wc_round_price( $eligible_total * ( $rate / 100 ) );
+            $amount = $this->round_price( $eligible_total * ( $rate / 100 ) );
 
             $label_template = $this->get_option( 'fee_label', __( 'US Tariff (%rate%% of parts)', 'us-pr-tariff-surcharge' ) );
             $label          = str_replace( '%RATE%', $rate, str_replace( '%rate%', $rate, $label_template ) );
@@ -420,7 +420,14 @@ if ( ! class_exists( 'US_PR_Tariff_Surcharge' ) ) {
          * Enqueue front-end assets.
          */
         public function enqueue_assets() {
-            if ( ! is_cart() && ! is_checkout() ) {
+            if ( function_exists( 'wp_doing_ajax' ) && wp_doing_ajax() ) {
+                return;
+            }
+
+            $is_cart     = $this->is_cart_context();
+            $is_checkout = $this->is_checkout_context();
+
+            if ( ! $is_cart && ! $is_checkout ) {
                 return;
             }
 
@@ -436,8 +443,8 @@ if ( ! class_exists( 'US_PR_Tariff_Surcharge' ) ) {
                 'requireAck'           => 'yes' === $this->get_option( 'require_acknowledgement', 'no' ),
                 'ackLabel'             => wp_kses_post( $this->format_rate_placeholder( $this->get_option( 'acknowledgement_label', __( 'I understand a 10% tariff will be added.', 'us-pr-tariff-surcharge' ) ) ) ),
                 'inlineNotice'         => wp_kses_post( $this->format_rate_placeholder( $this->get_option( 'inline_notice', __( 'A US tariff surcharge of %rate%% of eligible parts will apply to this order.', 'us-pr-tariff-surcharge' ) ) ) ),
-                'isCart'               => is_cart(),
-                'isCheckout'           => is_checkout(),
+                'isCart'               => $is_cart,
+                'isCheckout'           => $is_checkout,
                 'enableModalCart'      => 'yes' === $this->get_option( 'enable_popup_cart', 'yes' ),
                 'enableModalCheckout'  => 'yes' === $this->get_option( 'enable_popup_checkout', 'no' ),
                 'rateDisplay'          => $this->get_option( 'rate', 10 ),
@@ -466,10 +473,37 @@ if ( ! class_exists( 'US_PR_Tariff_Surcharge' ) ) {
         }
 
         /**
+         * Round a monetary amount using WooCommerce precision.
+         *
+         * @param float $amount Amount to round.
+         *
+         * @return float
+         */
+        protected function round_price( $amount ) {
+            $decimals = 2;
+
+            if ( function_exists( 'wc_get_price_decimals' ) ) {
+                $decimals = wc_get_price_decimals();
+            } elseif ( function_exists( 'wc_get_rounding_precision' ) ) {
+                $decimals = wc_get_rounding_precision();
+            }
+
+            if ( function_exists( 'wc_round' ) ) {
+                return (float) wc_round( $amount, $decimals );
+            }
+
+            if ( function_exists( 'wc_format_decimal' ) ) {
+                return (float) wc_format_decimal( $amount, $decimals );
+            }
+
+            return round( (float) $amount, (int) $decimals );
+        }
+
+        /**
          * Render inline notice on cart page.
          */
         public function render_inline_notice_cart() {
-            if ( ! is_cart() ) {
+            if ( ! $this->is_cart_context() ) {
                 return;
             }
 
@@ -489,7 +523,7 @@ if ( ! class_exists( 'US_PR_Tariff_Surcharge' ) ) {
          * Render inline notice on checkout page.
          */
         public function render_inline_notice_checkout() {
-            if ( ! is_checkout() ) {
+            if ( ! $this->is_checkout_context() ) {
                 return;
             }
 
@@ -515,15 +549,62 @@ if ( ! class_exists( 'US_PR_Tariff_Surcharge' ) ) {
                 return false;
             }
 
-            if ( is_cart() && 'yes' !== $this->get_option( 'enable_popup_cart', 'yes' ) ) {
+            if ( $this->is_cart_context() && 'yes' !== $this->get_option( 'enable_popup_cart', 'yes' ) ) {
                 return false;
             }
 
-            if ( is_checkout() && 'yes' !== $this->get_option( 'enable_popup_checkout', 'no' ) ) {
+            if ( $this->is_checkout_context() && 'yes' !== $this->get_option( 'enable_popup_checkout', 'no' ) ) {
                 return false;
             }
 
             return true;
+        }
+
+        /**
+         * Determine whether cart conditional tags can be used safely.
+         *
+         * @return bool
+         */
+        protected function conditionals_ready() {
+            if ( is_admin() && ( ! function_exists( 'wp_doing_ajax' ) || ! wp_doing_ajax() ) ) {
+                return false;
+            }
+
+            if ( did_action( 'wp' ) || doing_action( 'wp' ) ) {
+                return true;
+            }
+
+            if ( did_action( 'woocommerce_init' ) || doing_action( 'woocommerce_init' ) ) {
+                return true;
+            }
+
+            return false;
+        }
+
+        /**
+         * Check whether current request is for cart context.
+         *
+         * @return bool
+         */
+        protected function is_cart_context() {
+            if ( ! function_exists( 'is_cart' ) || ! $this->conditionals_ready() ) {
+                return false;
+            }
+
+            return is_cart();
+        }
+
+        /**
+         * Check whether current request is for checkout context.
+         *
+         * @return bool
+         */
+        protected function is_checkout_context() {
+            if ( ! function_exists( 'is_checkout' ) || ! $this->conditionals_ready() ) {
+                return false;
+            }
+
+            return is_checkout();
         }
 
         /**
